@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#4ec0ca" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Butiázinho — jogo HTML5 estilo Flappy Bird com power-ups, modo hard e ciclo dia/noite." />
+  <title>Butiázinho — feito por Célio De Oliveira</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Butiázinho</h1>
+      <p>Feito por Célio De Oliveira • Toque, clique ou <kbd>Espaço</kbd> para voar</p>
+    </header>
+
+    <div id="gameWrap">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>Carregando assets…</span>
+      </div>
+      <canvas id="game" width="288" height="512" style="display:none;" aria-label="Butiázinho"></canvas>
+    </div>
+
+    <div id="hud">
+      <div class="stat">
+        <div class="label">Score</div>
+        <div class="value" id="scoreVal">0</div>
+      </div>
+      <div class="stat best">
+        <div class="label">Recorde</div>
+        <div class="value" id="bestVal">0</div>
+      </div>
+      <button class="icon" id="muteBtn" type="button" aria-label="Ativar/desativar som">🔊</button>
+    </div>
+
+    <p id="hint">Toque na tela para começar</p>
+  </div>
+
+  <!-- ES6 Module entry point -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
