@@ -43,8 +43,8 @@
        ✓ Compatível com Chrome / Edge / Firefox / Android Chrome
    ========================================================================== */
 
-import { Assets } from './assets.js';
-import { AudioManager } from './audio.js';
+import { Assets } from './assets.js?v=ios-20261013';
+import { AudioManager } from './audio.js?v=ios-20261013';
 import { PowerupManager, POWERUP_CONFIG } from './powerups.js';
 
 // ==========================================================================
@@ -69,6 +69,7 @@ const GRAVITY = 0.32;
 const FLAP_VELOCITY = -5.4;
 const MAX_FALL_SPEED = 9;
 const BIRD_FRAME_INTERVAL = 6;
+const TOUCH_RISE_SPEED = -3.2;
 
 const NIGHT_SCORE_THRESHOLD = 10;  // alterna dia/noite a cada 10 pontos
 
@@ -110,7 +111,7 @@ function computeScoreChecksum(score) {
 // Todo o estado vive dentro desta closure. O único ponto de entrada
 // externo é o objeto retornado (frozen). Não há variáveis globais.
 // ==========================================================================
-export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn, gameWrap }) {
+export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn, gameWrap, controlModeBtn = null }) {
 
   // --- Validação de dependências ---
   if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas inválido');
@@ -142,6 +143,13 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   let lastFrameTime = 0;
   let running = false;
   let paused = false;
+  let destroyed = false;
+  let bootPromise = null;
+  let deathSoundTimer = null;
+  let activeTouchId = null;
+  let touchHoldActive = false;
+  let touchHoldEnabled = false;
+  const pressedFlightKeys = new Set();
 
   // Power-ups delegados ao módulo
   const powerups = new PowerupManager(POWERUP_CONFIG);
@@ -255,11 +263,11 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
     bird.frameTimer = 0;
     bird.rotation = 0;
   }
-  function flap() {
+  function flap(playSound = true) {
     bird.velocity = FLAP_VELOCITY;
     bird.frameIndex = 0;
     bird.frameTimer = 0;
-    audioMgr.play('wing');
+    if (playSound) audioMgr.play('wing');
   }
 
   // ==========================================================================
@@ -276,7 +284,13 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   // ==========================================================================
   // RESET / GAME OVER
   // ==========================================================================
+  function cancelDeathSound() {
+    if (deathSoundTimer !== null) clearTimeout(deathSoundTimer);
+    deathSoundTimer = null;
+  }
   function resetGame() {
+    clearTouchHold();
+    cancelDeathSound();
     resetBird();
     pipes.length = 0;
     score = 0;
@@ -289,10 +303,14 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
 
   function triggerGameOver() {
     if (state !== STATE.PLAYING) return;
+    clearTouchHold();
     state = STATE.GAME_OVER;
     audioMgr.play('hit');
-    // delay com função (não string) — permitido
-    setTimeout(() => audioMgr.play('die'), 220);
+    cancelDeathSound();
+    deathSoundTimer = setTimeout(() => {
+      deathSoundTimer = null;
+      if (running && !paused && state === STATE.GAME_OVER) audioMgr.play('die');
+    }, 220);
     if (score > highScore) {
       highScore = score;
       bestEl.textContent = String(highScore);
@@ -304,14 +322,14 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   // ==========================================================================
   // INPUT
   // ==========================================================================
-  function handleInput() {
+  function handleInput(playSound = true) {
     _verifyScoreIntegrity();
     if (state === STATE.READY) {
       state = STATE.PLAYING;
       hintEl.textContent = 'Desvie dos canos verdes!';
-      flap();
+      flap(playSound);
     } else if (state === STATE.PLAYING) {
-      flap();
+      flap(playSound);
     } else if (state === STATE.GAME_OVER) {
       resetGame();
       state = STATE.READY;
@@ -390,7 +408,12 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
     }
 
     // PLAYING — física do pássaro
-    bird.velocity = Math.min(bird.velocity + GRAVITY * delta, MAX_FALL_SPEED);
+    if (touchHoldEnabled && activeTouchId !== null) {
+      touchHoldActive = true;
+      bird.velocity = TOUCH_RISE_SPEED;
+    } else {
+      bird.velocity = Math.min(bird.velocity + GRAVITY * delta, MAX_FALL_SPEED);
+    }
     bird.y += bird.velocity * delta;
     const targetRotation = bird.velocity < 0
       ? -0.4
@@ -666,19 +689,28 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   // ==========================================================================
   function handleVisibilityChange() {
     if (document.hidden) {
+      clearTouchHold();
+      pressedFlightKeys.clear();
       paused = true;
+      cancelDeathSound();
       audioMgr.pauseAll();
     } else {
       paused = false;
+      lastFrameTime = 0;
       audioMgr.resumeBgmIfWasPlaying();
     }
   }
   function handleWindowBlur() {
+    clearTouchHold();
+    pressedFlightKeys.clear();
     paused = true;
+    cancelDeathSound();
     audioMgr.pauseAll();
   }
   function handleWindowFocus() {
+    if (document.hidden) return;
     paused = false;
+    lastFrameTime = 0;
     audioMgr.resumeBgmIfWasPlaying();
   }
 
@@ -690,36 +722,137 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   // INPUT HANDLERS
   // ==========================================================================
   function onPointer(e) {
+    // Touch events provide touchend activation and non-passive zoom prevention
+    // on iOS. Ignore their pointer duplicate; mouse/pen retain single flaps.
+    if (e.pointerType === 'touch') return;
+    if (!running || paused || destroyed || e.isPrimary === false || e.button > 0) return;
     e.preventDefault();
-    // BGM primeiro (escapa do call stack do evento)
-    setTimeout(() => audioMgr.startBgm(), 0);
     audioMgr.unlockOnUserGesture();
+    audioMgr.startBgm();
     handleInput();
   }
 
   function onKeydown(e) {
+    if (!running || paused || destroyed) return;
+    if (e.target?.closest?.('button, a, input, textarea, select, [contenteditable="true"]')) return;
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       e.preventDefault();
-      // Para teclado, também destrava o áudio
+      const repeated = e.repeat || pressedFlightKeys.has(e.code);
+      pressedFlightKeys.add(e.code);
+      // Preserve held-key flaps, but sound/unlock only on a fresh press.
+      // A held key must not restart another round after a collision.
+      if (repeated) {
+        if (state === STATE.PLAYING) handleInput(false);
+        return;
+      }
       audioMgr.unlockOnUserGesture();
-      setTimeout(() => audioMgr.startBgm(), 0);
+      audioMgr.startBgm();
       handleInput();
-    } else if (e.code === 'KeyM') {
+    } else if (e.code === 'KeyM' && !e.repeat) {
       toggleMute();
     }
+  }
+
+  function onKeyup(e) {
+    pressedFlightKeys.delete(e.code);
   }
 
   function toggleMute() {
     const m = audioMgr.toggleMute();
     muteBtn.textContent = m ? '🔇' : '🔊';
+    muteBtn.setAttribute('aria-pressed', String(!m));
+    muteBtn.setAttribute('aria-label', m ? 'Ligar som' : 'Desligar som');
+    if (!m) {
+      audioMgr.unlockOnUserGesture();
+      audioMgr.startBgm();
+    }
+  }
+
+  function onMuteClick(e) {
+    e.stopPropagation();
+    toggleMute();
+  }
+
+  function onTouchMove(e) {
+    e.preventDefault();
+  }
+
+  function clearTouchHold() {
+    if (touchHoldActive && state === STATE.PLAYING) bird.velocity = Math.max(0, bird.velocity);
+    activeTouchId = null;
+    touchHoldActive = false;
+  }
+
+  function onTouchStart(e) {
+    e.preventDefault();
+    if (!running || paused || destroyed || activeTouchId !== null) return;
+    // changedTouches belongs to this start event; touches also includes fingers
+    // resting outside the game and must not block the active game finger.
+    const touch = e.changedTouches?.[0] || e.touches?.[0];
+    if (!touch) return;
+    audioMgr.unlockOnUserGesture();
+    audioMgr.startBgm();
+    handleInput();
+    // Track the finger in both modes: one physical press, one wing effect.
+    activeTouchId = touch.identifier;
+    // Keep the original impulse if released before the next frame. Continuous
+    // ascent starts in that first frame, without a timer or long-press delay.
+    // Only a hold actually applied by update() stops rising on release.
+  }
+
+  function onTouchEnd(e) {
+    e.preventDefault();
+    if (running && !paused && !destroyed) {
+      // Some Safari versions authorize Web Audio on touchend rather than down.
+      audioMgr.unlockOnUserGesture();
+      audioMgr.startBgm();
+    }
+    for (let index = 0; index < (e.changedTouches?.length || 0); index++) {
+      const touch = e.changedTouches[index];
+      if (touch.identifier === activeTouchId) { clearTouchHold(); break; }
+    }
+  }
+
+  function onTouchCancel(e) {
+    e.preventDefault();
+    if (!e.changedTouches?.length) { clearTouchHold(); return; }
+    for (let index = 0; index < e.changedTouches.length; index++) {
+      const touch = e.changedTouches[index];
+      if (touch.identifier === activeTouchId) { clearTouchHold(); break; }
+    }
+  }
+
+  function preventGameGesture(e) {
+    e.preventDefault();
+  }
+
+  function onControlModeClick(e) {
+    e.stopPropagation();
+    clearTouchHold();
+    touchHoldEnabled = !touchHoldEnabled;
+    controlModeBtn.textContent = touchHoldEnabled ? 'Segurar' : 'Toque';
+    controlModeBtn.setAttribute('aria-pressed', String(touchHoldEnabled));
+    controlModeBtn.setAttribute('aria-label', touchHoldEnabled
+      ? 'Controle por segurar. Voltar ao toque'
+      : 'Controle por toque. Ativar segurar para subir');
   }
 
   gameWrap.addEventListener('pointerdown', onPointer);
   document.addEventListener('keydown', onKeydown);
-  muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); });
+  document.addEventListener('keyup', onKeyup);
+  muteBtn.addEventListener('click', onMuteClick);
+  controlModeBtn?.addEventListener('click', onControlModeClick);
 
   // Previne scroll/gestos no mobile
-  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  gameWrap.addEventListener('touchmove', onTouchMove, { passive: false });
+  gameWrap.addEventListener('touchstart', onTouchStart, { passive: false });
+  gameWrap.addEventListener('touchend', onTouchEnd, { passive: false });
+  gameWrap.addEventListener('touchcancel', onTouchCancel, { passive: false });
+  gameWrap.addEventListener('gesturestart', preventGameGesture, { passive: false });
+  gameWrap.addEventListener('gesturechange', preventGameGesture, { passive: false });
+  gameWrap.addEventListener('gestureend', preventGameGesture, { passive: false });
+  gameWrap.addEventListener('dblclick', preventGameGesture);
+  gameWrap.addEventListener('contextmenu', preventGameGesture);
 
   // ==========================================================================
   // BOOTSTRAP — carrega assets e inicia o loop
@@ -737,6 +870,7 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   }
 
   function start() {
+    if (destroyed) return;
     running = true;
     loadingEl.style.display = 'none';
     canvas.style.display = 'block';
@@ -749,30 +883,52 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
   return Object.freeze({
     /** Inicia o jogo após pré-carregar assets. */
     boot() {
-      return Assets.preload().then((result) => {
+      if (destroyed) return Promise.resolve();
+      if (bootPromise) return bootPromise;
+      bootPromise = Assets.preload().then((result) => {
+        if (destroyed) return;
         if (window.__BUTIAZINHO_DEBUG__) {
           console.log('[Butiázinho] Assets carregados. Falhas:', result.failed);
         }
+        // Prepare effects once without delaying the first game frame.
+        audioMgr.prepare().catch(() => {});
         start();
       }).catch((err) => {
         if (window.__BUTIAZINHO_DEBUG__) {
           console.error('[Butiázinho] Falha no boot:', err);
         }
-        _showLoadingError();
+        if (!destroyed) _showLoadingError();
       });
+      return bootPromise;
     },
 
     /** Para o jogo (limpa RAF). */
     destroy() {
+      clearTouchHold();
+      pressedFlightKeys.clear();
+      destroyed = true;
       running = false;
+      cancelDeathSound();
       if (rafId) cancelAnimationFrame(rafId);
       rafId = null;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
       gameWrap.removeEventListener('pointerdown', onPointer);
+      gameWrap.removeEventListener('touchmove', onTouchMove);
+      gameWrap.removeEventListener('touchstart', onTouchStart);
+      gameWrap.removeEventListener('touchend', onTouchEnd);
+      gameWrap.removeEventListener('touchcancel', onTouchCancel);
+      gameWrap.removeEventListener('gesturestart', preventGameGesture);
+      gameWrap.removeEventListener('gesturechange', preventGameGesture);
+      gameWrap.removeEventListener('gestureend', preventGameGesture);
+      gameWrap.removeEventListener('dblclick', preventGameGesture);
+      gameWrap.removeEventListener('contextmenu', preventGameGesture);
       document.removeEventListener('keydown', onKeydown);
-      audioMgr.pauseAll();
+      document.removeEventListener('keyup', onKeyup);
+      muteBtn.removeEventListener('click', onMuteClick);
+      controlModeBtn?.removeEventListener('click', onControlModeClick);
+      audioMgr.destroy();
     },
 
     /** Expõe o AudioManager (para teste / integração externa). */

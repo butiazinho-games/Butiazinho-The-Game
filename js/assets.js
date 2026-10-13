@@ -3,7 +3,7 @@
    --------------------------------------------------------------------------
    Responsabilidades:
      - Mapear nomes lógicos → arquivos físicos em /assets/
-     - Pré-carregar imagens e áudios de forma assíncrona (Promise.all)
+     - Pré-carregar imagens; expor efeitos para decode assíncrono no AudioManager
      - Garantir fallback visual quando uma imagem falta ou falha
      - Expor um objeto imutável (frozen) com os assets carregados
      - Nunca expor dados externos arbitrários como código executável
@@ -128,7 +128,7 @@ export const Assets = {
   audio: {},
 
   /**
-   * Pré-carrega todos os assets declarados nos manifests.
+   * Pré-carrega imagens. Áudio não bloqueia o início da partida.
    * Resolve sempre (nunca rejeita) — assets que falham usam fallback.
    * @returns {Promise<{images: Object, audio: Object, failed: string[]}>}
    */
@@ -153,41 +153,25 @@ export const Assets = {
       })
     );
 
-    const audioPromises = Object.entries(AUDIO_MANIFEST).map(([key, src]) =>
-      new Promise((resolve) => {
-        try {
-          const a = new Audio(src);
-          a.preload = 'auto';
-          if (key === 'bgm') {
-            a.loop = true;
-            a.volume = 0.35;
-          }
-          audio[key] = a;
-          // Fallback timeout — não deixa o preload travar
-          const fallbackMs = (key === 'bgm') ? 800 : 1500;
-          const timer = setTimeout(resolve, fallbackMs);
-          const finish = () => { clearTimeout(timer); resolve(); };
-          a.addEventListener('canplaythrough', finish, { once: true });
-          a.addEventListener('canplay', finish, { once: true });
-          a.addEventListener('error', () => {
-            if (window.__BUTIAZINHO_DEBUG__) {
-              console.warn(`[Butiázinho] Falha ao carregar áudio: ${key} (${src})`);
-            }
-            failed.push(key);
-            finish();
-          }, { once: true });
-          a.load();
-        } catch (e) {
-          if (window.__BUTIAZINHO_DEBUG__) {
-            console.warn(`[Butiázinho] Erro ao instanciar áudio: ${key}`, e);
-          }
-          failed.push(key);
-          resolve();
-        }
-      })
-    );
+    for (const [key, src] of Object.entries(AUDIO_MANIFEST)) {
+      if (key !== 'bgm') {
+        // No five native MP3 players competing with short Web Audio effects.
+        audio[key] = Object.freeze({ src });
+        continue;
+      }
+      try {
+        const bgm = new Audio(src);
+        bgm.preload = 'metadata';
+        bgm.loop = true;
+        bgm.volume = 0.35;
+        audio.bgm = bgm;
+      } catch (error) {
+        failed.push(key);
+        if (window.__BUTIAZINHO_DEBUG__) console.warn('[Butiázinho] Música indisponível', error);
+      }
+    }
 
-    return Promise.all([...imgPromises, ...audioPromises]).then(() => {
+    return Promise.all(imgPromises).then(() => {
       // Substitui as propriedades internas pelos maps carregados (congelados)
       this.images = Object.freeze(images);
       this.audio  = Object.freeze(audio);
@@ -203,7 +187,7 @@ export const Assets = {
   },
 
   /**
-   * Acessa um áudio (retorna undefined se não carregou).
+   * Acessa o player da música ou o descritor src de um efeito.
    */
   getAudio(name) {
     return this.audio[name];

@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="description" content="Butiázinho — jogo HTML5 estilo Flappy Bird com power-ups, modo hard e ciclo dia/noite." />
   <title>Butiázinho — feito por Célio De Oliveira</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=ios-20261013" />
 </head>
 <body>
   <div id="app">
@@ -34,13 +34,14 @@
         <div class="label">Recorde</div>
         <div class="value" id="bestVal">0</div>
       </div>
-      <button class="icon" id="muteBtn" type="button" aria-label="Ativar/desativar som">🔊</button>
+      <button class="icon" id="muteBtn" type="button" aria-label="Desligar som" aria-pressed="true">🔊</button>
+      <button class="icon control-mode" id="controlModeBtn" type="button" aria-label="Controle por toque. Ativar segurar para subir" aria-pressed="false" title="Alternar entre toque e segurar">Toque</button>
     </div>
 
     <p id="hint">Toque na tela para começar</p>
   </div>
 
   <!-- ES6 Module entry point -->
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=ios-20261013"></script>
 </body>
 </html>
