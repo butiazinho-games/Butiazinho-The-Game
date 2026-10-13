@@ -65,11 +65,14 @@ header kbd {
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35), 0 0 0 4px rgba(255, 255, 255, 0.45);
-  touch-action: manipulation;
+  touch-action: none;
+  -webkit-touch-callout: none;
   line-height: 0;
 }
 
 canvas {
+  touch-action: none;
+  -webkit-touch-callout: none;
   display: block;
   height: auto;
   /* Em retrato, limita por altura; em paisagem, por largura */
@@ -118,6 +121,7 @@ canvas {
 }
 
 button.icon {
+  touch-action: manipulation;
   background: rgba(255, 255, 255, 0.92);
   border: none;
   color: #2d3748;
@@ -133,6 +137,17 @@ button.icon {
 
 button.icon:active {
   transform: scale(0.95);
+}
+
+button.control-mode {
+  display: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px;
+}
+
+@media (pointer: coarse) {
+  button.control-mode { display: block; }
 }
 
 #hint {
