@@ -7,7 +7,7 @@
    - Inicia o boot (preload + game loop)
    ========================================================================== */
 
-import { createGame } from './game.js';
+import { createGame } from './game.js?v=ios-20261013';
 
 // Em produção, NÃO definimos window.__BUTIAZINHO_DEBUG__.
 // Para debug local, abra o console e digite:
@@ -23,6 +23,7 @@ import { createGame } from './game.js';
   const loadingEl = document.getElementById('loading');
   const muteBtn   = document.getElementById('muteBtn');
   const gameWrap  = document.getElementById('gameWrap');
+  const controlModeBtn = document.getElementById('controlModeBtn');
 
   // Validação defensiva — se faltar algum elemento, mostramos mensagem limpa.
   if (!canvas || !scoreEl || !bestEl || !hintEl || !loadingEl || !muteBtn || !gameWrap) {
@@ -32,7 +33,7 @@ import { createGame } from './game.js';
 
   try {
     const game = createGame({
-      canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn, gameWrap,
+      canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn, gameWrap, controlModeBtn,
     });
     game.boot();
   } catch (err) {
