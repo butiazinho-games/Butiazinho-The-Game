@@ -326,7 +326,7 @@ export function createGame({ canvas, scoreEl, bestEl, hintEl, loadingEl, muteBtn
     _verifyScoreIntegrity();
     if (state === STATE.READY) {
       state = STATE.PLAYING;
-      hintEl.textContent = 'Desvie dos canos verdes!';
+      hintEl.textContent = 'Desvie dos canos!';
       flap(playSound);
     } else if (state === STATE.PLAYING) {
       flap(playSound);
